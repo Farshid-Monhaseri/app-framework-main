@@ -28,6 +28,12 @@ enum SysD_State {
     SysD_State_Failed
 };
 
+enum SysD_Job_State {
+    SysD_Job_State_INVALID,
+    SysD_Job_State_Waiting,
+    SysD_Job_State_Running
+};
+
 struct sd_bus;
 extern int systemd_get_bus(int isuser, struct sd_bus **ret);
 extern void systemd_set_bus(int isuser, struct sd_bus *bus);

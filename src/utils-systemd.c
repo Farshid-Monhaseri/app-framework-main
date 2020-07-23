@@ -56,6 +56,8 @@ static const char sdb_destination[] = "org.freedesktop.systemd1";
 static const char sdbi_manager[] = "org.freedesktop.systemd1.Manager";
 static const char sdbi_unit[] = "org.freedesktop.systemd1.Unit";
 static const char sdbi_service[] = "org.freedesktop.systemd1.Service";
+static const char sdbi_job[] = "org.freedesktop.systemd1.Job";
+static const char sdbj_state[] = "State";
 static const char sdbm_reload[] = "Reload";
 static const char sdbm_start_unit[] = "StartUnit";
 static const char sdbm_restart_unit[] = "RestartUnit";
@@ -77,6 +79,12 @@ static const char *sds_state_names[] = {
 	"deactivating",
 	"reloading",
 	"failed"
+};
+
+static const char *sds_job_state_names[] = {
+	NULL,
+	"waiting",
+	"running"
 };
 
 static struct sd_bus *sysbus;
@@ -305,6 +313,46 @@ static enum SysD_State unit_state(struct sd_bus *bus, const char *dpath)
 	return resu;
 }
 
+static int job_wait(struct sd_bus *bus, struct sd_bus_message *job)
+{
+	int rc;
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	const char *jpath = NULL;
+	char *jstate;
+	struct timespec tispec;
+	const int period_ms = 10;
+	const int trial_s = 10;
+	const int trial_count = (trial_s * 1000) / period_ms;
+	const int period_ns = period_ms * 1000000;
+	int trial;
+
+	/* Get job path */
+	rc = sd_bus_message_read_basic(job, 'o', &jpath);
+	if (rc < 0)
+		return rc;
+
+	/* Wait for job to enter "running" state */
+	rc = 0;
+	for (trial = 1 ; trial <= trial_count ; trial++) {
+		jstate = NULL;
+		if(sd_bus_get_property_string(bus, sdb_destination, jpath, sdbi_job, sdbj_state, &err, &jstate) >= 0) {
+			if(jstate && strcmp(jstate, sds_job_state_names[SysD_Job_State_Running]) == 0) {
+				free(jstate);
+				break;
+			} else {
+				tispec.tv_sec = 0;
+				tispec.tv_nsec = period_ns;
+				nanosleep(&tispec, NULL);
+			}
+			free(jstate);
+		}
+	}
+	if(trial > trial_count)
+		rc = -1;
+
+	return rc;
+}
+
 static int unit_start(struct sd_bus *bus, const char *dpath)
 {
 	int rc;
@@ -312,6 +360,9 @@ static int unit_start(struct sd_bus *bus, const char *dpath)
 	sd_bus_error err = SD_BUS_ERROR_NULL;
 
 	rc = sd_bus_call_method(bus, sdb_destination, dpath, sdbi_unit, sdbm_start, &err, &ret, "s", "replace");
+	if(ret) {
+		rc = job_wait(bus, ret);
+	}
 	sd_bus_message_unref(ret);
 	return rc;
 }
@@ -323,6 +374,9 @@ static int unit_restart(struct sd_bus *bus, const char *dpath)
 	sd_bus_error err = SD_BUS_ERROR_NULL;
 
 	rc = sd_bus_call_method(bus, sdb_destination, dpath, sdbi_unit, sdbm_restart, &err, &ret, "s", "replace");
+	if(ret) {
+		rc = job_wait(bus, ret);
+	}
 	sd_bus_message_unref(ret);
 	return rc;
 }
@@ -345,6 +399,9 @@ static int unit_start_name(struct sd_bus *bus, const char *name)
 	sd_bus_error err = SD_BUS_ERROR_NULL;
 
 	rc = sd_bus_call_method(bus, sdb_destination, sdb_path, sdbi_manager, sdbm_start_unit, &err, &ret, "ss", name, "replace");
+	if(ret) {
+		rc = job_wait(bus, ret);
+	}
 	sd_bus_message_unref(ret);
 	return rc;
 }
@@ -356,6 +413,9 @@ static int unit_restart_name(struct sd_bus *bus, const char *name)
 	sd_bus_error err = SD_BUS_ERROR_NULL;
 
 	rc = sd_bus_call_method(bus, sdb_destination, sdb_path, sdbi_manager, sdbm_restart_unit, &err, &ret, "ss", name, "replace");
+	if(ret) {
+		rc = job_wait(bus, ret);
+	}
 	sd_bus_message_unref(ret);
 	return rc;
 }
