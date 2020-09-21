@@ -84,7 +84,7 @@ widget file:
 dbus-send --session --print-reply \
     --dest=org.AGL.afm.system \
     /org/AGL/afm/system \
-    org.AGL.afm.system.install 'string:"/tmp/appli.wgt"
+    org.AGL.afm.system.install string:"/tmp/appli.wgt"
 ```
 
 And here, to query data on installed applications that can be run:
